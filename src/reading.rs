@@ -16,6 +16,7 @@ pub struct Reading {
     pub battery: u8,
     pub interval: u16,
     pub age: u16,
+    pub instant: std::time::Instant,
 }
 
 impl std::fmt::Display for Reading {
@@ -70,6 +71,39 @@ impl Reading {
             Err(e) => Err(e),
         }
     }
+
+    pub fn is_repeat_reading(&self, newer: &Reading) -> bool {
+        if self.co2 != newer.co2
+            || self.raw_temperature != newer.raw_temperature
+            || self.raw_pressure != newer.raw_pressure
+            || self.humidity != newer.humidity
+        {
+            // New sensor data, definitely a new reading
+            return false;
+        }
+
+        if newer.age < self.age {
+            // The clock rolled over, definitely a new reading
+            return false;
+        }
+
+        if newer.interval != self.interval {
+            // The interval changed. That doesn't tell us anything about whether
+            // there's a new reading, but it does simplify the next check.
+            // Since this is rare, we'll just assume it's a repeat reading. (The
+            // sensor data is the same after all)
+            return true;
+        }
+
+        let secs = newer.instant.duration_since(self.instant).as_secs();
+        if secs > newer.interval as u64 {
+            // If it's been longer than the interval, then we can assume a new
+            // reading with the same values.
+            return false;
+        }
+
+        true
+    }
 }
 
 impl TryFrom<&[u8]> for Reading {
@@ -116,6 +150,11 @@ impl TryFrom<&[u8]> for Reading {
         let interval = u16::from_le_bytes([raw[17], raw[17 + 1]]);
         let age = u16::from_le_bytes([raw[19], raw[19 + 1]]);
 
+        let instant = std::time::Instant::now();
+        let instant = instant
+            .checked_sub(std::time::Duration::from_secs(age as u64))
+            .ok_or_else(|| "Failed to get current instant".to_string())?;
+
         Ok(Reading {
             co2,
             raw_temperature,
@@ -124,6 +163,7 @@ impl TryFrom<&[u8]> for Reading {
             battery,
             interval,
             age,
+            instant,
         })
     }
 }
