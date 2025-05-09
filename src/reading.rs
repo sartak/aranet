@@ -17,6 +17,7 @@ pub struct Reading {
     pub interval: u16,
     pub age: u16,
     pub instant: std::time::Instant,
+    pub time: std::time::SystemTime,
 }
 
 impl std::fmt::Display for Reading {
@@ -156,6 +157,11 @@ impl TryFrom<&[u8]> for Reading {
             .checked_sub(std::time::Duration::from_secs(age as u64))
             .ok_or_else(|| "Failed to get current instant".to_string())?;
 
+        let time = std::time::SystemTime::now();
+        let time = time
+            .checked_sub(std::time::Duration::from_secs(age as u64))
+            .ok_or_else(|| "Failed to get current time".to_string())?;
+
         Ok(Reading {
             co2,
             raw_temperature,
@@ -165,6 +171,7 @@ impl TryFrom<&[u8]> for Reading {
             interval,
             age,
             instant,
+            time,
         })
     }
 }
