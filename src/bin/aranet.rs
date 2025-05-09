@@ -1,87 +1,112 @@
-use anyhow::Result;
-use aranet::config::Config;
-use btleplug::api::{
-    Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::BleUuid,
-};
-use btleplug::platform::{Adapter, Manager};
+use anyhow::{Result, anyhow};
+use aranet::{config, reading::Reading};
+use btleplug::api::{BDAddr, Central, CentralEvent, Manager as _, Peripheral};
+use btleplug::platform::Manager;
 use futures::stream::StreamExt;
+use std::{collections::HashMap, str::FromStr};
 
-async fn load_config() -> Result<Config> {
+static MANUFACTURER_ID: u16 = 1794;
+
+async fn load_config() -> Result<config::Config> {
     let path = "config.toml";
     let content = tokio::fs::read_to_string(path).await?;
-    Ok(Config::try_from(content.as_ref())?)
+    Ok(config::Config::try_from(content.as_ref())?)
 }
 
-async fn get_central(manager: &Manager) -> Adapter {
-    let adapters = manager.adapters().await.unwrap();
-    adapters.into_iter().next().unwrap()
+async fn scan(devices: Vec<config::Device>) -> Result<()> {
+    let devices = devices
+        .into_iter()
+        .map(|device| {
+            BDAddr::from_str(&device.address)
+                .map(|addr| (addr, device))
+                .map_err(anyhow::Error::from)
+        })
+        .collect::<Result<HashMap<BDAddr, config::Device>>>()?;
+
+    let res = tokio::task::spawn_blocking(async move || -> Result<()> {
+        let manager = Manager::new().await?;
+
+        let adapters = manager.adapters().await?;
+        let central = adapters
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("No Bluetooth adapters found"))?;
+
+        let central_state = central.adapter_state().await?;
+        if central_state != btleplug::api::CentralState::PoweredOn {
+            return Err(anyhow!("Bluetooth adapter is not powered on"));
+        }
+
+        let mut events = central.events().await?;
+
+        while let Some(event) = events.next().await {
+            if let CentralEvent::ManufacturerDataAdvertisement {
+                id,
+                manufacturer_data,
+            } = event
+            {
+                let peripheral = match central.peripheral(&id).await {
+                    Ok(peripheral) => peripheral,
+                    Err(e) => {
+                        eprintln!("Error getting peripheral for {id}: {e:?}");
+                        continue;
+                    }
+                };
+
+                let properties = match peripheral.properties().await {
+                    Ok(Some(properties)) => properties,
+                    Ok(None) => {
+                        eprintln!("No properties for {id}");
+                        continue;
+                    }
+                    Err(e) => {
+                        eprintln!("Error getting properties for {id}: {e:?}");
+                        continue;
+                    }
+                };
+
+                let address = properties.address;
+                let Some(device) = devices.get(&address) else {
+                    continue;
+                };
+
+                let payload = match manufacturer_data.get(&MANUFACTURER_ID) {
+                    Some(payload) => payload,
+                    None => {
+                        eprintln!(
+                            "No manufacturer data from {}: {:?}",
+                            device.name, manufacturer_data
+                        );
+                        continue;
+                    }
+                };
+
+                let reading = match Reading::try_from(payload.as_slice()) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to parse payload from {}: {:?} {:?}",
+                            device.name, e, payload
+                        );
+                        continue;
+                    }
+                };
+
+                println!("{}: {}", device.name, reading);
+            }
+        }
+
+        Ok(())
+    });
+
+    res.await?.await
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = load_config().await?;
-    println!("Config: {:?}", config);
-    todo!();
+    let config::Config { output: _, devices } = load_config().await?;
+    let devices = devices.into_values().collect::<Vec<_>>();
+    scan(devices).await?;
 
-    let manager = Manager::new().await?;
-
-    // get the first bluetooth adapter
-    // connect to the adapter
-    let central = get_central(&manager).await;
-
-    let central_state = central.adapter_state().await.unwrap();
-    println!("CentralState: {:?}", central_state);
-
-    // Each adapter has an event stream, we fetch via events(),
-    // simplifying the type, this will return what is essentially a
-    // Future<Result<Stream<Item=CentralEvent>>>.
-    let mut events = central.events().await?;
-
-    // start scanning for devices
-    central.start_scan(ScanFilter::default()).await?;
-
-    // Print based on whatever the event receiver outputs. Note that the event
-    // receiver blocks, so in a real program, this should be run in its own
-    // thread (not task, as this library does not yet use async channels).
-    while let Some(event) = events.next().await {
-        match event {
-            CentralEvent::DeviceDiscovered(id) => {
-                let peripheral = central.peripheral(&id).await?;
-                let properties = peripheral.properties().await?;
-                let name = properties
-                    .and_then(|p| p.local_name)
-                    .map(|local_name| format!("Name: {local_name}"))
-                    .unwrap_or_default();
-                println!("DeviceDiscovered: {:?} {}", id, name);
-            }
-            CentralEvent::StateUpdate(state) => {
-                println!("AdapterStatusUpdate {:?}", state);
-            }
-            CentralEvent::DeviceConnected(id) => {
-                println!("DeviceConnected: {:?}", id);
-            }
-            CentralEvent::DeviceDisconnected(id) => {
-                println!("DeviceDisconnected: {:?}", id);
-            }
-            CentralEvent::ManufacturerDataAdvertisement {
-                id,
-                manufacturer_data,
-            } => {
-                println!(
-                    "ManufacturerDataAdvertisement: {:?}, {:?}",
-                    id, manufacturer_data
-                );
-            }
-            CentralEvent::ServiceDataAdvertisement { id, service_data } => {
-                println!("ServiceDataAdvertisement: {:?}, {:?}", id, service_data);
-            }
-            CentralEvent::ServicesAdvertisement { id, services } => {
-                let services: Vec<String> =
-                    services.into_iter().map(|s| s.to_short_string()).collect();
-                println!("ServicesAdvertisement: {:?}, {:?}", id, services);
-            }
-            _ => {}
-        }
-    }
     Ok(())
 }

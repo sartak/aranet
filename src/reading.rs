@@ -18,6 +18,37 @@ pub struct Reading {
     pub age: u16,
 }
 
+impl std::fmt::Display for Reading {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CO₂ ")?;
+        match self.co2 {
+            Ok(v) => write!(f, "{v}ppm")?,
+            Err(e) => write!(f, "{e}")?,
+        };
+        write!(f, ", ")?;
+
+        match self.celsius() {
+            Ok(v) => write!(f, "{v:.1}°C")?,
+            Err(e) => write!(f, "temperature {e}")?,
+        };
+        write!(f, ", ")?;
+
+        match self.humidity {
+            Ok(v) => write!(f, "{v}%")?,
+            Err(e) => write!(f, "{e}")?,
+        };
+        write!(f, ", ")?;
+
+        match self.pressure_hpa() {
+            Ok(v) => write!(f, "{v:.1}hPa")?,
+            Err(e) => write!(f, "{e}")?,
+        };
+        write!(f, ", ")?;
+
+        write!(f, "battery {}%", self.battery)
+    }
+}
+
 impl Reading {
     pub fn celsius(&self) -> Result<f32, InvalidReading> {
         match self.raw_temperature {
