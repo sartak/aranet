@@ -1,11 +1,14 @@
 use anyhow::{Result, anyhow};
 use aranet::{config, reading::Reading};
-use btleplug::api::{BDAddr, Central, CentralEvent, Manager as _, Peripheral};
+use btleplug::api::{
+    BDAddr, Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::uuid_from_u16,
+};
 use btleplug::platform::Manager;
 use futures::stream::StreamExt;
 use std::{collections::HashMap, str::FromStr};
 
 static MANUFACTURER_ID: u16 = 1794;
+static SERVICE_ID: u16 = 0xfce0;
 
 async fn load_config() -> Result<config::Config> {
     let path = "config.toml";
@@ -38,6 +41,9 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
         }
 
         let mut events = central.events().await?;
+
+        let services = vec![uuid_from_u16(SERVICE_ID)];
+        central.start_scan(ScanFilter { services }).await?;
 
         while let Some(event) = events.next().await {
             if let CentralEvent::ManufacturerDataAdvertisement {
