@@ -11,7 +11,7 @@ static MANUFACTURER_ID: u16 = 1794;
 static SERVICE_ID: u16 = 0xfce0;
 
 async fn load_config() -> Result<config::Config> {
-    let path = "config.toml";
+    let path = std::env::var("ARANET_CONFIG").unwrap_or(String::from("config.toml"));
     let content = tokio::fs::read_to_string(path).await?;
     Ok(config::Config::try_from(content.as_ref())?)
 }
