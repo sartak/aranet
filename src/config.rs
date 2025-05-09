@@ -3,13 +3,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub output: Output,
     pub devices: HashMap<String, Device>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Output {
-    pub url: String,
 }
 
 #[derive(Debug, Deserialize)]

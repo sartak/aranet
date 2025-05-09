@@ -147,7 +147,7 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config::Config { output: _, devices } = load_config().await?;
+    let config::Config { devices } = load_config().await?;
     let devices = devices
         .into_values()
         .map(|mut device| {
