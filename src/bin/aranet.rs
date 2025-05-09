@@ -1,9 +1,16 @@
 use anyhow::Result;
+use aranet::config::Config;
 use btleplug::api::{
     Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::BleUuid,
 };
 use btleplug::platform::{Adapter, Manager};
 use futures::stream::StreamExt;
+
+async fn load_config() -> Result<Config> {
+    let path = "config.toml";
+    let content = tokio::fs::read_to_string(path).await?;
+    Ok(Config::try_from(content.as_ref())?)
+}
 
 async fn get_central(manager: &Manager) -> Adapter {
     let adapters = manager.adapters().await.unwrap();
@@ -12,6 +19,10 @@ async fn get_central(manager: &Manager) -> Adapter {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let config = load_config().await?;
+    println!("Config: {:?}", config);
+    todo!();
+
     let manager = Manager::new().await?;
 
     // get the first bluetooth adapter
