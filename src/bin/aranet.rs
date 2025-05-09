@@ -26,6 +26,8 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
         })
         .collect::<Result<HashMap<BDAddr, config::Device>>>()?;
 
+    let mut last_reading: HashMap<BDAddr, Reading> = HashMap::new();
+
     let res = tokio::task::spawn_blocking(async move || -> Result<()> {
         let manager = Manager::new().await?;
 
@@ -98,7 +100,13 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
                     }
                 };
 
+                if let Some(last) = last_reading.get(&address) {
+                    if last.is_repeat_reading(&reading) {
+                        continue;
+                    }
+                }
                 println!("{}: {}", device.name, reading);
+                last_reading.insert(address, reading);
             }
         }
 

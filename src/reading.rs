@@ -77,6 +77,7 @@ impl Reading {
             || self.raw_temperature != newer.raw_temperature
             || self.raw_pressure != newer.raw_pressure
             || self.humidity != newer.humidity
+            || self.battery != newer.battery
         {
             // New sensor data, definitely a new reading
             return false;
