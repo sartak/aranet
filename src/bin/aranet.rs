@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use aranet::{config, reading::Reading};
 use btleplug::api::{
     BDAddr, Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::uuid_from_u16,
@@ -105,7 +105,36 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
                         continue;
                     }
                 }
-                println!("{}: {}", device.name, reading);
+
+                print!("aranet");
+                print!(",name={}", device.name);
+
+                print!(" ");
+
+                if let Ok(co2) = reading.co2 {
+                    print!("co2={co2}i,");
+                }
+                if let Ok(temperature) = reading.celsius() {
+                    print!("temperature={temperature:.1},");
+                }
+                if let Ok(humidity) = reading.humidity {
+                    print!("humidity={humidity}i,");
+                }
+                if let Ok(pressure) = reading.pressure_hpa() {
+                    print!("pressure={pressure:.1},");
+                }
+                print!("battery={}i", reading.battery);
+
+                print!(" ");
+
+                let time = reading
+                    .time
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap();
+                let time = time.as_nanos();
+                print!("{}", time);
+
+                println!();
                 last_reading.insert(address, reading);
             }
         }
@@ -119,7 +148,24 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let config::Config { output: _, devices } = load_config().await?;
-    let devices = devices.into_values().collect::<Vec<_>>();
+    let devices = devices
+        .into_values()
+        .map(|mut device| {
+            if device.name.contains('"') || device.name.contains("'") {
+                bail!("Device name must not contain quotes: {}", device.name);
+            }
+            if device.name.contains('\\') {
+                bail!("Device name must not contain backslash: {}", device.name);
+            }
+
+            // HACK: Escape spaces in device name for InfluxDB line protocol
+            // Since device name isn't used much elsewhere it's okay for now.
+            device.name = device.name.replace(' ', "\\ ");
+
+            Ok(device)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     scan(devices).await?;
 
     Ok(())
