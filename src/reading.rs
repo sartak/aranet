@@ -13,8 +13,17 @@ pub enum Humidity {
     V2(u16),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Device {
+    Aranet4,
+    Aranet2,
+    AranetRadiation,
+    AranetRadon,
+}
+
 #[derive(Debug, Clone)]
 pub struct Reading {
+    pub device: Device,
     pub co2: Option<Result<u16, InvalidReading>>,
     pub raw_temperature: Result<u16, InvalidReading>,
     pub raw_pressure: Result<u16, InvalidReading>,
@@ -24,6 +33,20 @@ pub struct Reading {
     pub age: u16,
     pub instant: std::time::Instant,
     pub time: std::time::SystemTime,
+}
+
+impl TryFrom<u8> for Device {
+    type Error = String;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Device::Aranet4),
+            1 => Ok(Device::Aranet2),
+            2 => Ok(Device::AranetRadiation),
+            3 => Ok(Device::AranetRadon),
+            _ => Err(format!("Unknown device type: {value}")),
+        }
+    }
 }
 
 impl std::fmt::Display for Reading {
@@ -128,38 +151,70 @@ impl TryFrom<&[u8]> for Reading {
             ));
         }
 
-        let co2 = u16::from_le_bytes([raw[8], raw[8 + 1]]);
-        let co2 = if (co2 >> 15) > 0 {
-            Some(Err(InvalidReading))
+        let mut bytes = raw.iter();
+
+        // Aranet4 doesn't identify itself the same way
+        let device = if raw.len() == 22 {
+            Device::Aranet4
         } else {
-            Some(Ok(co2))
+            Device::try_from(raw[0])?
         };
 
-        let raw_temperature = u16::from_le_bytes([raw[10], raw[10 + 1]]);
+        match device {
+            Device::AranetRadon => {
+                return Err("AranetRadon is not yet supported, PRs welcome".to_string());
+            }
+            Device::Aranet2 => {
+                return Err("Aranet2 is not yet supported, PRs welcome".to_string());
+            }
+            Device::AranetRadiation => {
+                return Err("AranetRadiation is not yet supported, PRs welcome".to_string());
+            }
+            _ => {}
+        };
+
+        for _ in 0..8 {
+            bytes.next();
+        }
+
+        let co2 = match device {
+            Device::Aranet4 => {
+                let co2 = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
+                if (co2 >> 15) > 0 {
+                    Some(Err(InvalidReading))
+                } else {
+                    Some(Ok(co2))
+                }
+            }
+            _ => None,
+        };
+
+        let raw_temperature = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
         let raw_temperature = if ((raw_temperature >> 14) & 1) > 0 {
             Err(InvalidReading)
         } else {
             Ok(raw_temperature)
         };
 
-        let raw_pressure = u16::from_le_bytes([raw[12], raw[12 + 1]]);
+        let raw_pressure = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
         let raw_pressure = if (raw_pressure >> 15) > 0 {
             Err(InvalidReading)
         } else {
             Ok(raw_pressure)
         };
 
-        let raw_humidity = raw[14];
+        let raw_humidity = *bytes.next().unwrap();
         let raw_humidity = if (raw_humidity >> 7) > 0 {
             Err(InvalidReading)
         } else {
             Ok(Humidity::V1(raw_humidity))
         };
 
-        let battery = raw[15];
-        // status is raw[16], but it's superfluous
-        let interval = u16::from_le_bytes([raw[17], raw[17 + 1]]);
-        let age = u16::from_le_bytes([raw[19], raw[19 + 1]]);
+        let battery = *bytes.next().unwrap();
+        let _status = *bytes.next().unwrap();
+
+        let interval = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
+        let age = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
 
         let instant = std::time::Instant::now();
         let instant = instant
@@ -172,6 +227,7 @@ impl TryFrom<&[u8]> for Reading {
             .ok_or_else(|| "Failed to get current time".to_string())?;
 
         Ok(Reading {
+            device,
             co2,
             raw_temperature,
             raw_pressure,
@@ -197,6 +253,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
+        assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
@@ -228,6 +285,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
+        assert_eq!(reading.device, Device::Aranet4);
         assert!(matches!(reading.co2, Some(Err(InvalidReading))));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
@@ -245,6 +303,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
+        assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert!(matches!(reading.raw_temperature, Err(InvalidReading)));
         assert!(matches!(reading.celsius(), Err(InvalidReading)));
@@ -264,6 +323,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
+        assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert!(matches!(reading.raw_pressure, Err(InvalidReading)));
@@ -282,6 +342,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
+        assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
