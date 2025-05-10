@@ -30,6 +30,18 @@ pub enum Device {
     AranetRadon,
 }
 
+impl std::fmt::Display for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Device::*;
+        match self {
+            Aranet4 => write!(f, "Aranet4"),
+            Aranet2 => write!(f, "Aranet2"),
+            AranetRadiation => write!(f, "AranetRadiation"),
+            AranetRadon => write!(f, "AranetRadon"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Reading {
     pub device: Device,

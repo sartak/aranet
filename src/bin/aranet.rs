@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow, bail};
 use aranet::{
     config,
-    reading::{Humidity, Reading},
+    reading::{Device, Humidity, Reading},
 };
 use btleplug::api::{
     BDAddr, Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::uuid_from_u16,
@@ -111,6 +111,15 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
 
                 print!("aranet");
                 print!(",name={}", device.name);
+                print!(
+                    ",device={}",
+                    match reading.device {
+                        Device::Aranet4 => "aranet4",
+                        Device::Aranet2 => "aranet2",
+                        Device::AranetRadiation => "aranet_radiation",
+                        Device::AranetRadon => "aranet_radon",
+                    }
+                );
 
                 print!(" ");
 
