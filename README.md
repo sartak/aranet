@@ -1,8 +1,8 @@
 # Aranet4 exporter for InfluxDB / victoria-metrics
 
 This is a service that listens for Bluetooth advertisement data from Aranet4
-and prints each one, intended for a time-series database like InfluxDB or
-victoria-metrics.
+and AranetRadon. It prints each measurement, intended for a time-series
+database like InfluxDB or victoria-metrics. PRs welcome for other sensors.
 
 You do not need to pair your Aranet4 device with the host running this service.
 However, you do need to enable "Smart Home integrations" for each Aranet4 device,

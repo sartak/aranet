@@ -117,6 +117,9 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
                 if let Some(Ok(co2)) = reading.co2 {
                     print!("co2={co2}i,");
                 }
+                if let Some(Ok(radon)) = reading.radon {
+                    print!("radon={radon}i,");
+                }
                 if let Ok(temperature) = reading.celsius() {
                     print!("temperature={temperature:.1},");
                 }
