@@ -1,5 +1,8 @@
 use anyhow::{Result, anyhow, bail};
-use aranet::{config, reading::Reading};
+use aranet::{
+    config,
+    reading::{Humidity, Reading},
+};
 use btleplug::api::{
     BDAddr, Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::uuid_from_u16,
 };
@@ -117,8 +120,11 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
                 if let Ok(temperature) = reading.celsius() {
                     print!("temperature={temperature:.1},");
                 }
-                if let Ok(humidity) = reading.humidity {
-                    print!("humidity={humidity}i,");
+                if let Ok(humidity) = reading.raw_humidity {
+                    match humidity {
+                        Humidity::V1(v) => print!("humidity={}i,", v),
+                        Humidity::V2(v) => print!("humidity={:.1},", v as f32 * 0.1),
+                    }
                 }
                 if let Ok(pressure) = reading.pressure_hpa() {
                     print!("pressure={pressure:.1},");

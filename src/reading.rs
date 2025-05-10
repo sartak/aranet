@@ -7,12 +7,18 @@ impl std::fmt::Display for InvalidReading {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Humidity {
+    V1(u8),
+    V2(u16),
+}
+
 #[derive(Debug, Clone)]
 pub struct Reading {
     pub co2: Option<Result<u16, InvalidReading>>,
     pub raw_temperature: Result<u16, InvalidReading>,
     pub raw_pressure: Result<u16, InvalidReading>,
-    pub humidity: Result<u8, InvalidReading>,
+    pub raw_humidity: Result<Humidity, InvalidReading>,
     pub battery: u8,
     pub interval: u16,
     pub age: u16,
@@ -37,8 +43,9 @@ impl std::fmt::Display for Reading {
         };
         write!(f, ", ")?;
 
-        match self.humidity {
-            Ok(v) => write!(f, "{v}%")?,
+        match self.raw_humidity {
+            Ok(Humidity::V1(v)) => write!(f, "{v}%")?,
+            Ok(Humidity::V2(v)) => write!(f, "{:.1}%", v as f32 * 0.1)?,
             Err(e) => write!(f, "{e}")?,
         };
         write!(f, ", ")?;
@@ -79,7 +86,7 @@ impl Reading {
         if self.co2 != newer.co2
             || self.raw_temperature != newer.raw_temperature
             || self.raw_pressure != newer.raw_pressure
-            || self.humidity != newer.humidity
+            || self.raw_humidity != newer.raw_humidity
             || self.battery != newer.battery
         {
             // New sensor data, definitely a new reading
@@ -142,11 +149,11 @@ impl TryFrom<&[u8]> for Reading {
             Ok(raw_pressure)
         };
 
-        let humidity = raw[14];
-        let humidity = if (humidity >> 7) > 0 {
+        let raw_humidity = raw[14];
+        let raw_humidity = if (raw_humidity >> 7) > 0 {
             Err(InvalidReading)
         } else {
-            Ok(humidity)
+            Ok(Humidity::V1(raw_humidity))
         };
 
         let battery = raw[15];
@@ -168,7 +175,7 @@ impl TryFrom<&[u8]> for Reading {
             co2,
             raw_temperature,
             raw_pressure,
-            humidity,
+            raw_humidity,
             battery,
             interval,
             age,
@@ -193,7 +200,7 @@ mod tests {
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
-        assert_eq!(reading.humidity, Ok(56));
+        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
@@ -224,7 +231,7 @@ mod tests {
         assert!(matches!(reading.co2, Some(Err(InvalidReading))));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
-        assert_eq!(reading.humidity, Ok(56));
+        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
@@ -243,7 +250,7 @@ mod tests {
         assert!(matches!(reading.celsius(), Err(InvalidReading)));
         assert!(matches!(reading.fahrenheit(), Err(InvalidReading)));
         assert_eq!(reading.raw_pressure, Ok(10189));
-        assert_eq!(reading.humidity, Ok(56));
+        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
@@ -261,7 +268,7 @@ mod tests {
         assert_eq!(reading.raw_temperature, Ok(452));
         assert!(matches!(reading.raw_pressure, Err(InvalidReading)));
         assert!(matches!(reading.pressure_hpa(), Err(InvalidReading)));
-        assert_eq!(reading.humidity, Ok(56));
+        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
@@ -278,7 +285,7 @@ mod tests {
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
-        assert!(matches!(reading.humidity, Err(InvalidReading)));
+        assert!(matches!(reading.raw_humidity, Err(InvalidReading)));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
