@@ -9,7 +9,7 @@ impl std::fmt::Display for InvalidReading {
 
 #[derive(Debug, Clone)]
 pub struct Reading {
-    pub co2: Result<u16, InvalidReading>,
+    pub co2: Option<Result<u16, InvalidReading>>,
     pub raw_temperature: Result<u16, InvalidReading>,
     pub raw_pressure: Result<u16, InvalidReading>,
     pub humidity: Result<u8, InvalidReading>,
@@ -22,12 +22,14 @@ pub struct Reading {
 
 impl std::fmt::Display for Reading {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CO₂ ")?;
-        match self.co2 {
-            Ok(v) => write!(f, "{v}ppm")?,
-            Err(e) => write!(f, "{e}")?,
-        };
-        write!(f, ", ")?;
+        if let Some(co2) = self.co2 {
+            write!(f, "CO₂ ")?;
+            match co2 {
+                Ok(v) => write!(f, "{v}ppm")?,
+                Err(e) => write!(f, "{e}")?,
+            };
+            write!(f, ", ")?;
+        }
 
         match self.celsius() {
             Ok(v) => write!(f, "{v:.1}°C")?,
@@ -121,9 +123,9 @@ impl TryFrom<&[u8]> for Reading {
 
         let co2 = u16::from_le_bytes([raw[8], raw[8 + 1]]);
         let co2 = if (co2 >> 15) > 0 {
-            Err(InvalidReading)
+            Some(Err(InvalidReading))
         } else {
-            Ok(co2)
+            Some(Ok(co2))
         };
 
         let raw_temperature = u16::from_le_bytes([raw[10], raw[10 + 1]]);
@@ -181,14 +183,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_reading() {
+    fn test_co2_reading() {
         let raw = vec![
             0x21, 0x2c, 0x05, 0x01, 0x00, 0x0c, 0x01, 0x01, 0xf0, 0x02, 0xc4, 0x01, 0xcd, 0x27,
             0x38, 0x3c, 0x01, 0x3c, 0x00, 0x0d, 0x00, 0x5d,
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
-        assert_eq!(reading.co2, Ok(752));
+        assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
         assert_eq!(reading.humidity, Ok(56));
@@ -219,7 +221,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
-        assert!(matches!(reading.co2, Err(InvalidReading)));
+        assert!(matches!(reading.co2, Some(Err(InvalidReading))));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
         assert_eq!(reading.humidity, Ok(56));
@@ -236,7 +238,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
-        assert_eq!(reading.co2, Ok(752));
+        assert_eq!(reading.co2, Some(Ok(752)));
         assert!(matches!(reading.raw_temperature, Err(InvalidReading)));
         assert!(matches!(reading.celsius(), Err(InvalidReading)));
         assert!(matches!(reading.fahrenheit(), Err(InvalidReading)));
@@ -255,7 +257,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
-        assert_eq!(reading.co2, Ok(752));
+        assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert!(matches!(reading.raw_pressure, Err(InvalidReading)));
         assert!(matches!(reading.pressure_hpa(), Err(InvalidReading)));
@@ -273,7 +275,7 @@ mod tests {
         ];
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
-        assert_eq!(reading.co2, Ok(752));
+        assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
         assert!(matches!(reading.humidity, Err(InvalidReading)));
