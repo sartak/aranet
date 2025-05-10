@@ -1,9 +1,14 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InvalidReading;
+pub enum ReadingError {
+    Invalid,
+}
 
-impl std::fmt::Display for InvalidReading {
+impl std::fmt::Display for ReadingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Invalid reading")
+        use ReadingError::*;
+        match self {
+            Invalid => write!(f, "Invalid reading"),
+        }
     }
 }
 
@@ -24,10 +29,10 @@ pub enum Device {
 #[derive(Debug, Clone)]
 pub struct Reading {
     pub device: Device,
-    pub co2: Option<Result<u16, InvalidReading>>,
-    pub raw_temperature: Result<u16, InvalidReading>,
-    pub raw_pressure: Result<u16, InvalidReading>,
-    pub raw_humidity: Result<Humidity, InvalidReading>,
+    pub co2: Option<Result<u16, ReadingError>>,
+    pub raw_temperature: Result<u16, ReadingError>,
+    pub raw_pressure: Result<u16, ReadingError>,
+    pub raw_humidity: Result<Humidity, ReadingError>,
     pub battery: u8,
     pub interval: u16,
     pub age: u16,
@@ -84,21 +89,21 @@ impl std::fmt::Display for Reading {
 }
 
 impl Reading {
-    pub fn celsius(&self) -> Result<f32, InvalidReading> {
+    pub fn celsius(&self) -> Result<f32, ReadingError> {
         match self.raw_temperature {
             Ok(raw) => Ok(raw as f32 * 0.05),
             Err(e) => Err(e),
         }
     }
 
-    pub fn fahrenheit(&self) -> Result<f32, InvalidReading> {
+    pub fn fahrenheit(&self) -> Result<f32, ReadingError> {
         match self.raw_temperature {
             Ok(raw) => Ok(raw as f32 * 0.05 * 9.0 / 5.0 + 32.0),
             Err(e) => Err(e),
         }
     }
 
-    pub fn pressure_hpa(&self) -> Result<f32, InvalidReading> {
+    pub fn pressure_hpa(&self) -> Result<f32, ReadingError> {
         match self.raw_pressure {
             Ok(raw) => Ok(raw as f32 * 0.1),
             Err(e) => Err(e),
@@ -181,7 +186,7 @@ impl TryFrom<&[u8]> for Reading {
             Device::Aranet4 => {
                 let co2 = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
                 if (co2 >> 15) > 0 {
-                    Some(Err(InvalidReading))
+                    Some(Err(ReadingError::Invalid))
                 } else {
                     Some(Ok(co2))
                 }
@@ -191,21 +196,21 @@ impl TryFrom<&[u8]> for Reading {
 
         let raw_temperature = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
         let raw_temperature = if ((raw_temperature >> 14) & 1) > 0 {
-            Err(InvalidReading)
+            Err(ReadingError::Invalid)
         } else {
             Ok(raw_temperature)
         };
 
         let raw_pressure = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
         let raw_pressure = if (raw_pressure >> 15) > 0 {
-            Err(InvalidReading)
+            Err(ReadingError::Invalid)
         } else {
             Ok(raw_pressure)
         };
 
         let raw_humidity = *bytes.next().unwrap();
         let raw_humidity = if (raw_humidity >> 7) > 0 {
-            Err(InvalidReading)
+            Err(ReadingError::Invalid)
         } else {
             Ok(Humidity::V1(raw_humidity))
         };
@@ -286,7 +291,7 @@ mod tests {
 
         let reading = Reading::try_from(raw.as_slice()).unwrap();
         assert_eq!(reading.device, Device::Aranet4);
-        assert!(matches!(reading.co2, Some(Err(InvalidReading))));
+        assert_eq!(reading.co2, Some(Err(ReadingError::Invalid)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
         assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
@@ -305,9 +310,9 @@ mod tests {
         let reading = Reading::try_from(raw.as_slice()).unwrap();
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
-        assert!(matches!(reading.raw_temperature, Err(InvalidReading)));
-        assert!(matches!(reading.celsius(), Err(InvalidReading)));
-        assert!(matches!(reading.fahrenheit(), Err(InvalidReading)));
+        assert_eq!(reading.raw_temperature, Err(ReadingError::Invalid));
+        assert_eq!(reading.celsius(), Err(ReadingError::Invalid));
+        assert_eq!(reading.fahrenheit(), Err(ReadingError::Invalid));
         assert_eq!(reading.raw_pressure, Ok(10189));
         assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
         assert_eq!(reading.battery, 60);
@@ -326,8 +331,8 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
-        assert!(matches!(reading.raw_pressure, Err(InvalidReading)));
-        assert!(matches!(reading.pressure_hpa(), Err(InvalidReading)));
+        assert_eq!(reading.raw_pressure, Err(ReadingError::Invalid));
+        assert_eq!(reading.pressure_hpa(), Err(ReadingError::Invalid));
         assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
@@ -346,7 +351,7 @@ mod tests {
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.raw_temperature, Ok(452));
         assert_eq!(reading.raw_pressure, Ok(10189));
-        assert!(matches!(reading.raw_humidity, Err(InvalidReading)));
+        assert_eq!(reading.raw_humidity, Err(ReadingError::Invalid));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
