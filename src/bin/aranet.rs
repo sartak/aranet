@@ -143,6 +143,10 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
                 }
                 print!("battery={}i", reading.battery);
 
+                if let Some(rssi) = properties.rssi {
+                    print!(",rssi={rssi}i");
+                }
+
                 print!(" ");
 
                 let time = reading

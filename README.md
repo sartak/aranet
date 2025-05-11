@@ -24,12 +24,12 @@ Here's an example of the output (which uses the
 radon:
 
 ```
-aranet,name=Kitchen,device=aranet4 co2=485i,temperature=15.9,humidity=53i,pressure=1008.7,battery=60i 1746888802038113983
-aranet,name=Foyer,device=aranet4 co2=534i,temperature=18.4,humidity=58i,pressure=1006.3,battery=57i 1746888812063136890
-aranet,name=Basement,device=aranet_radon radon=32i,temperature=16.6,humidity=58.2,pressure=1006.6,battery=100i 1746888800079903620
-aranet,name=Dining\ room,device=aranet4 co2=557i,temperature=15.9,humidity=58i,pressure=1006.7,battery=57i 1746888838490242786
-aranet,name=Dining\ room,device=aranet4 co2=549i,temperature=15.9,humidity=58i,pressure=1006.7,battery=58i 1746888860106787942
-aranet,name=Kitchen,device=aranet4 co2=486i,temperature=16.0,humidity=53i,pressure=1008.8,battery=60i 1746888871942746828
+aranet,name=Kitchen,device=aranet4 co2=485i,temperature=15.9,humidity=53i,pressure=1008.7,battery=60i,rssi=-65i 1746888802038113983
+aranet,name=Foyer,device=aranet4 co2=534i,temperature=18.4,humidity=58i,pressure=1006.3,battery=57i,rssi=-70i 1746888812063136890
+aranet,name=Basement,device=aranet_radon radon=32i,temperature=16.6,humidity=58.2,pressure=1006.6,battery=100i,rssi=-78i 1746888800079903620
+aranet,name=Dining\ room,device=aranet4 co2=557i,temperature=15.9,humidity=58i,pressure=1006.7,battery=57i,rssi=-73i 1746888838490242786
+aranet,name=Dining\ room,device=aranet4 co2=549i,temperature=15.9,humidity=58i,pressure=1006.7,battery=58i,rssi=-73i 1746888860106787942
+aranet,name=Kitchen,device=aranet4 co2=486i,temperature=16.0,humidity=53i,pressure=1008.8,battery=60i,rssi=-63i 1746888871942746828
 ```
 
 You'll want to use a tool like `telegraf` to publish the data from this service
