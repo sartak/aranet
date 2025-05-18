@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadingError {
     Invalid,
@@ -42,11 +44,45 @@ impl std::fmt::Display for Device {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Radiation {
+    pub raw_total: u32,
+    pub raw_duration: u32,
+    pub raw_rate: u16,
+}
+
+impl Radiation {
+    pub fn duration(&self) -> Duration {
+        Duration::from_secs(self.raw_duration as u64)
+    }
+
+    pub fn duration_string(&self) -> String {
+        let duration = self.raw_duration;
+        let hours = duration / 3600;
+        let minutes = (duration % 3600) / 60;
+        let seconds = duration % 60;
+
+        let str = [(hours, "h"), (minutes, "m"), (seconds, "s")]
+            .iter()
+            .filter(|(v, _)| *v > 0)
+            .map(|(v, s)| format!("{v}{s}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if str.is_empty() {
+            String::from("0s")
+        } else {
+            str
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Reading {
     pub device: Device,
     pub co2: Option<Result<u16, ReadingError>>,
     pub radon: Option<Result<u16, ReadingError>>,
+    pub radiation: Option<Radiation>,
     pub raw_temperature: Option<Result<u16, ReadingError>>,
     pub raw_pressure: Option<Result<u16, ReadingError>>,
     pub raw_humidity: Option<Result<Humidity, ReadingError>>,
@@ -88,6 +124,17 @@ impl std::fmt::Display for Reading {
                 Ok(v) => write!(f, "{v}Bq/m³")?,
                 Err(e) => write!(f, "{e}")?,
             };
+            write!(f, ", ")?;
+        }
+
+        if let Some(radiation) = &self.radiation {
+            write!(
+                f,
+                "radiation {:.3} µSv/h ({:.6} mSv in {})",
+                (radiation.raw_rate as f32) / 1000.0,
+                (radiation.raw_total as f64) / 1000000.0,
+                radiation.duration_string(),
+            )?;
             write!(f, ", ")?;
         }
 
@@ -145,6 +192,7 @@ impl Reading {
     pub fn is_repeat_reading(&self, newer: &Reading) -> bool {
         if self.co2 != newer.co2
             || self.radon != newer.radon
+            || self.radiation != newer.radiation
             || self.raw_temperature != newer.raw_temperature
             || self.raw_pressure != newer.raw_pressure
             || self.raw_humidity != newer.raw_humidity
@@ -198,26 +246,19 @@ impl TryFrom<&[u8]> for Reading {
             Device::try_from(*bytes.next().unwrap())?
         };
 
-        match device {
-            Device::Aranet2 => {
-                return Err("Aranet2 is not yet supported, PRs welcome".to_string());
-            }
-            Device::AranetRadiation => {
-                return Err("AranetRadiation is not yet supported, PRs welcome".to_string());
-            }
-            _ => {}
+        if device == Device::Aranet2 {
+            return Err("Aranet2 is not yet supported, PRs welcome".to_string());
         };
 
-        for _ in 0..7 {
-            bytes.next();
-        }
+        let skip = match device {
+            Device::Aranet4 => 8,
+            Device::AranetRadon => 7,
+            Device::AranetRadiation => 5,
+            Device::Aranet2 => unreachable!(),
+        };
 
-        match device {
-            Device::Aranet4 => {
-                bytes.next();
-            }
-            Device::AranetRadon => {}
-            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
+        for _ in 0..skip {
+            bytes.next();
         }
 
         let co2 = match device {
@@ -248,6 +289,33 @@ impl TryFrom<&[u8]> for Reading {
             _ => None,
         };
 
+        let radiation = match device {
+            Device::AranetRadiation => {
+                let raw_total = u32::from_le_bytes([
+                    *bytes.next().unwrap(),
+                    *bytes.next().unwrap(),
+                    *bytes.next().unwrap(),
+                    *bytes.next().unwrap(),
+                ]);
+                let raw_duration = u32::from_le_bytes([
+                    *bytes.next().unwrap(),
+                    *bytes.next().unwrap(),
+                    *bytes.next().unwrap(),
+                    *bytes.next().unwrap(),
+                ]);
+                let raw_rate = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
+
+                bytes.next();
+
+                Some(Radiation {
+                    raw_total,
+                    raw_duration,
+                    raw_rate,
+                })
+            }
+            _ => None,
+        };
+
         let raw_temperature = match device {
             Device::Aranet4 | Device::AranetRadon => {
                 let raw_temperature =
@@ -259,7 +327,8 @@ impl TryFrom<&[u8]> for Reading {
                 };
                 Some(raw_temperature)
             }
-            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
+            Device::AranetRadiation => None,
+            Device::Aranet2 => unreachable!(),
         };
 
         let raw_pressure = match device {
@@ -273,7 +342,8 @@ impl TryFrom<&[u8]> for Reading {
                 };
                 Some(raw_pressure)
             }
-            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
+            Device::AranetRadiation => None,
+            Device::Aranet2 => unreachable!(),
         };
 
         let raw_humidity = match device {
@@ -294,7 +364,8 @@ impl TryFrom<&[u8]> for Reading {
                     Some(Ok(Humidity::V2(raw_humidity)))
                 }
             }
-            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
+            Device::AranetRadiation => None,
+            Device::Aranet2 => unreachable!(),
         };
 
         match device {
@@ -302,7 +373,8 @@ impl TryFrom<&[u8]> for Reading {
             Device::AranetRadon => {
                 bytes.next();
             }
-            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
+            Device::AranetRadiation => {}
+            Device::Aranet2 => unreachable!(),
         }
 
         let battery = *bytes.next().unwrap();
@@ -325,6 +397,7 @@ impl TryFrom<&[u8]> for Reading {
             device,
             co2,
             radon,
+            radiation,
             raw_temperature,
             raw_pressure,
             raw_humidity,
@@ -352,6 +425,7 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(452)));
         assert_eq!(reading.raw_pressure, Some(Ok(10189)));
         assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V1(56))));
@@ -375,6 +449,7 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Ok(24)));
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(332)));
         assert_eq!(reading.raw_pressure, Some(Ok(10064)));
         assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
@@ -385,6 +460,37 @@ mod tests {
         assert_eq!(reading.celsius(), Some(Ok(16.6)));
         assert_eq!(reading.fahrenheit(), Some(Ok(61.88)));
         assert_eq!(reading.pressure_hpa(), Some(Ok(1006.4)));
+    }
+
+    #[test]
+    fn test_radiation_reading() {
+        let raw = vec![
+            0x02, 0x21, 0x01, 0x09, 0x01, 0x00, 0x35, 0x00, 0x00, 0x00, 0xe4, 0x0c, 0x00, 0x00,
+            0x3c, 0x00, 0x00, 0x64, 0x00, 0x3c, 0x00, 0x05, 0x00, 0x37,
+        ];
+
+        let reading = Reading::try_from(raw.as_slice()).unwrap();
+        assert_eq!(reading.device, Device::AranetRadiation);
+        assert_eq!(reading.co2, None);
+        assert_eq!(reading.radon, None);
+        assert_eq!(
+            reading.radiation,
+            Some(Radiation {
+                raw_total: 53,
+                raw_duration: 3300,
+                raw_rate: 60,
+            })
+        );
+        assert_eq!(reading.raw_temperature, None);
+        assert_eq!(reading.raw_pressure, None);
+        assert_eq!(reading.raw_humidity, None);
+        assert_eq!(reading.battery, 100);
+        assert_eq!(reading.interval, 60);
+        assert_eq!(reading.age, 5);
+
+        assert_eq!(reading.celsius(), None);
+        assert_eq!(reading.fahrenheit(), None);
+        assert_eq!(reading.pressure_hpa(), None);
     }
 
     #[test]
@@ -408,6 +514,7 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Err(ReadingError::Invalid)));
         assert_eq!(reading.radon, None);
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(452)));
         assert_eq!(reading.raw_pressure, Some(Ok(10189)));
         assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V1(56))));
@@ -427,6 +534,7 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Err(ReadingError::Invalid)));
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(332)));
         assert_eq!(reading.raw_pressure, Some(Ok(10064)));
         assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
@@ -450,6 +558,7 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Err(ReadingError::NoData)));
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(332)));
         assert_eq!(reading.raw_pressure, Some(Ok(10064)));
         assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
@@ -473,6 +582,7 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Err(ReadingError::HighHumidity)));
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(332)));
         assert_eq!(reading.raw_pressure, Some(Ok(10064)));
         assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
@@ -496,6 +606,7 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Err(ReadingError::Invalid)));
         assert_eq!(reading.celsius(), Some(Err(ReadingError::Invalid)));
         assert_eq!(reading.fahrenheit(), Some(Err(ReadingError::Invalid)));
@@ -517,6 +628,7 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(452)));
         assert_eq!(reading.raw_pressure, Some(Err(ReadingError::Invalid)));
         assert_eq!(reading.pressure_hpa(), Some(Err(ReadingError::Invalid)));
@@ -537,6 +649,7 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
+        assert_eq!(reading.radiation, None);
         assert_eq!(reading.raw_temperature, Some(Ok(452)));
         assert_eq!(reading.raw_pressure, Some(Ok(10189)));
         assert_eq!(reading.raw_humidity, Some(Err(ReadingError::Invalid)));
