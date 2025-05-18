@@ -5,8 +5,10 @@ and AranetRadon. It prints each measurement, intended for a time-series
 database like InfluxDB or victoria-metrics. PRs welcome for other sensors.
 
 You do not need to pair your Aranet4 device with the host running this service.
-However, you do need to enable "Smart Home integrations" for each Aranet4 device,
-and you'll need its Bluetooth MAC address.
+However, you do need to enable "Smart Home integrations" for each Aranet4
+device, and you'll need its Bluetooth MAC address. To help find these MAC
+addresses, you can pass `--mode=find` to print each time a payload is received
+from any Aranet device.
 
 This service expects a configuration file, which is named by the following
 order of precedence:

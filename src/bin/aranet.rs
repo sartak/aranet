@@ -7,17 +7,28 @@ use btleplug::api::{
     BDAddr, Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::uuid_from_u16,
 };
 use btleplug::platform::Manager;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use futures::stream::StreamExt;
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 static MANUFACTURER_ID: u16 = 1794;
 static SERVICE_ID: u16 = 0xfce0;
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum RunMode {
+    /// Print sensor readings from each configured device
+    Influx,
+    /// Print reachable Aranet devices
+    Find,
+}
+
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(long, env = "ARANET_CONFIG", default_value = "config.toml")]
     config_file: PathBuf,
+
+    #[arg(long, short, default_value = "influx")]
+    mode: RunMode,
 }
 
 async fn load_config(args: &Args) -> Result<config::Config> {
@@ -50,7 +61,7 @@ fn devices(config: config::Config) -> Result<HashMap<BDAddr, config::Device>> {
         .collect()
 }
 
-async fn scan(config: config::Config) -> Result<()> {
+async fn scan(args: Args, config: config::Config) -> Result<()> {
     let devices = devices(config)?;
     let mut last_reading: HashMap<BDAddr, Reading> = HashMap::new();
 
@@ -100,6 +111,31 @@ async fn scan(config: config::Config) -> Result<()> {
                 };
 
                 let address = properties.address;
+
+                match args.mode {
+                    RunMode::Find => {
+                        if !manufacturer_data.contains_key(&MANUFACTURER_ID) {
+                            continue;
+                        }
+
+                        match (properties.local_name, devices.get(&address)) {
+                            (_, Some(device)) => {
+                                println!("Found configured device {} at {address}", device.name);
+                            }
+                            (Some(name), None) => {
+                                println!("Found new device {name} at {address}");
+                            }
+                            (None, None) => {
+                                println!("Found new unnamed device at {address}");
+                            }
+                        }
+                        continue;
+                    }
+                    RunMode::Influx => {
+                        // continue inline
+                    }
+                }
+
                 let Some(device) = devices.get(&address) else {
                     continue;
                 };
@@ -197,7 +233,7 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("Failed to load config file {}", args.config_file.display()))?;
 
-    scan(config).await?;
+    scan(args, config).await?;
 
     Ok(())
 }
