@@ -1,5 +1,8 @@
 # Aranet4 exporter for InfluxDB / victoria-metrics
 
+![Example Grafana dashboard of Aranet sensor output](grafana.png)
+*Example Grafana dashboard of Aranet sensor output*
+
 This is a service that listens for Bluetooth advertisement data from Aranet4
 and AranetRadon. It prints each measurement, intended for a time-series
 database like InfluxDB or victoria-metrics. PRs welcome for other sensors.
