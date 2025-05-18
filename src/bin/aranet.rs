@@ -25,16 +25,31 @@ async fn load_config(args: &Args) -> Result<config::Config> {
     Ok(config::Config::try_from(content.as_ref())?)
 }
 
-async fn scan(devices: Vec<config::Device>) -> Result<()> {
-    let devices = devices
-        .into_iter()
-        .map(|device| {
+fn devices(config: config::Config) -> Result<HashMap<BDAddr, config::Device>> {
+    config
+        .devices
+        .into_values()
+        .map(|mut device| {
+            if device.name.contains('"') || device.name.contains("'") {
+                bail!("Device name must not contain quotes: {}", device.name);
+            }
+            if device.name.contains('\\') {
+                bail!("Device name must not contain backslash: {}", device.name);
+            }
+
+            // HACK: Escape spaces in device name for InfluxDB line protocol
+            // Since device name isn't used much elsewhere it's okay for now.
+            device.name = device.name.replace(' ', "\\ ");
+
             BDAddr::from_str(&device.address)
                 .map(|addr| (addr, device))
                 .map_err(anyhow::Error::from)
         })
-        .collect::<Result<HashMap<BDAddr, config::Device>>>()?;
+        .collect()
+}
 
+async fn scan(config: config::Config) -> Result<()> {
+    let devices = devices(config)?;
     let mut last_reading: HashMap<BDAddr, Reading> = HashMap::new();
 
     let res = tokio::task::spawn_blocking(async move || -> Result<()> {
@@ -176,27 +191,9 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let config::Config { devices } = load_config(&args).await?;
+    let config = load_config(&args).await?;
 
-    let devices = devices
-        .into_values()
-        .map(|mut device| {
-            if device.name.contains('"') || device.name.contains("'") {
-                bail!("Device name must not contain quotes: {}", device.name);
-            }
-            if device.name.contains('\\') {
-                bail!("Device name must not contain backslash: {}", device.name);
-            }
-
-            // HACK: Escape spaces in device name for InfluxDB line protocol
-            // Since device name isn't used much elsewhere it's okay for now.
-            device.name = device.name.replace(' ', "\\ ");
-
-            Ok(device)
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    scan(devices).await?;
+    scan(config).await?;
 
     Ok(())
 }
