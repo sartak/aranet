@@ -188,16 +188,16 @@ async fn scan(args: Args, config: config::Config) -> Result<()> {
                 if let Some(Ok(radon)) = reading.radon {
                     print!("radon={radon}i,");
                 }
-                if let Ok(temperature) = reading.celsius() {
+                if let Some(Ok(temperature)) = reading.celsius() {
                     print!("temperature={temperature:.1},");
                 }
-                if let Ok(humidity) = reading.raw_humidity {
+                if let Some(Ok(humidity)) = reading.raw_humidity {
                     match humidity {
                         Humidity::V1(v) => print!("humidity={}i,", v),
                         Humidity::V2(v) => print!("humidity={:.1},", v as f32 * 0.1),
                     }
                 }
-                if let Ok(pressure) = reading.pressure_hpa() {
+                if let Some(Ok(pressure)) = reading.pressure_hpa() {
                     print!("pressure={pressure:.1},");
                 }
                 print!("battery={}i", reading.battery);

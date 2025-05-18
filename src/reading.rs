@@ -47,9 +47,9 @@ pub struct Reading {
     pub device: Device,
     pub co2: Option<Result<u16, ReadingError>>,
     pub radon: Option<Result<u16, ReadingError>>,
-    pub raw_temperature: Result<u16, ReadingError>,
-    pub raw_pressure: Result<u16, ReadingError>,
-    pub raw_humidity: Result<Humidity, ReadingError>,
+    pub raw_temperature: Option<Result<u16, ReadingError>>,
+    pub raw_pressure: Option<Result<u16, ReadingError>>,
+    pub raw_humidity: Option<Result<Humidity, ReadingError>>,
     pub battery: u8,
     pub interval: u16,
     pub age: u16,
@@ -91,49 +91,55 @@ impl std::fmt::Display for Reading {
             write!(f, ", ")?;
         }
 
-        match self.celsius() {
-            Ok(v) => write!(f, "{v:.1}°C")?,
-            Err(e) => write!(f, "temperature {e}")?,
-        };
-        write!(f, ", ")?;
+        if let Some(celsius) = self.celsius() {
+            match celsius {
+                Ok(v) => write!(f, "{v:.1}°C")?,
+                Err(e) => write!(f, "temperature {e}")?,
+            };
+            write!(f, ", ")?;
+        }
 
-        match self.raw_humidity {
-            Ok(Humidity::V1(v)) => write!(f, "{v}%")?,
-            Ok(Humidity::V2(v)) => write!(f, "{:.1}%", v as f32 * 0.1)?,
-            Err(e) => write!(f, "{e}")?,
-        };
-        write!(f, ", ")?;
+        if let Some(humidity) = self.raw_humidity {
+            match humidity {
+                Ok(Humidity::V1(v)) => write!(f, "{v}%")?,
+                Ok(Humidity::V2(v)) => write!(f, "{:.1}%", v as f32 * 0.1)?,
+                Err(e) => write!(f, "{e}")?,
+            };
+            write!(f, ", ")?;
+        }
 
-        match self.pressure_hpa() {
-            Ok(v) => write!(f, "{v:.1}hPa")?,
-            Err(e) => write!(f, "{e}")?,
-        };
-        write!(f, ", ")?;
+        if let Some(pressure) = self.pressure_hpa() {
+            match pressure {
+                Ok(v) => write!(f, "{v:.1}hPa")?,
+                Err(e) => write!(f, "{e}")?,
+            };
+            write!(f, ", ")?;
+        }
 
         write!(f, "battery {}%", self.battery)
     }
 }
 
 impl Reading {
-    pub fn celsius(&self) -> Result<f32, ReadingError> {
-        match self.raw_temperature {
+    pub fn celsius(&self) -> Option<Result<f32, ReadingError>> {
+        self.raw_temperature.map(|t| match t {
             Ok(raw) => Ok(raw as f32 * 0.05),
             Err(e) => Err(e),
-        }
+        })
     }
 
-    pub fn fahrenheit(&self) -> Result<f32, ReadingError> {
-        match self.raw_temperature {
+    pub fn fahrenheit(&self) -> Option<Result<f32, ReadingError>> {
+        self.raw_temperature.map(|t| match t {
             Ok(raw) => Ok(raw as f32 * 0.05 * 9.0 / 5.0 + 32.0),
             Err(e) => Err(e),
-        }
+        })
     }
 
-    pub fn pressure_hpa(&self) -> Result<f32, ReadingError> {
-        match self.raw_pressure {
+    pub fn pressure_hpa(&self) -> Option<Result<f32, ReadingError>> {
+        self.raw_pressure.map(|p| match p {
             Ok(raw) => Ok(raw as f32 * 0.1),
             Err(e) => Err(e),
-        }
+        })
     }
 
     pub fn is_repeat_reading(&self, newer: &Reading) -> bool {
@@ -211,7 +217,7 @@ impl TryFrom<&[u8]> for Reading {
                 bytes.next();
             }
             Device::AranetRadon => {}
-            _ => unreachable!(),
+            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
         }
 
         let co2 = match device {
@@ -242,39 +248,53 @@ impl TryFrom<&[u8]> for Reading {
             _ => None,
         };
 
-        let raw_temperature = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
-        let raw_temperature = if ((raw_temperature >> 14) & 1) > 0 {
-            Err(ReadingError::Invalid)
-        } else {
-            Ok(raw_temperature)
+        let raw_temperature = match device {
+            Device::Aranet4 | Device::AranetRadon => {
+                let raw_temperature =
+                    u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
+                let raw_temperature = if ((raw_temperature >> 14) & 1) > 0 {
+                    Err(ReadingError::Invalid)
+                } else {
+                    Ok(raw_temperature)
+                };
+                Some(raw_temperature)
+            }
+            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
         };
 
-        let raw_pressure = u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
-        let raw_pressure = if (raw_pressure >> 15) > 0 {
-            Err(ReadingError::Invalid)
-        } else {
-            Ok(raw_pressure)
+        let raw_pressure = match device {
+            Device::Aranet4 | Device::AranetRadon => {
+                let raw_pressure =
+                    u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
+                let raw_pressure = if (raw_pressure >> 15) > 0 {
+                    Err(ReadingError::Invalid)
+                } else {
+                    Ok(raw_pressure)
+                };
+                Some(raw_pressure)
+            }
+            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
         };
 
         let raw_humidity = match device {
             Device::Aranet4 => {
                 let raw_humidity = *bytes.next().unwrap();
                 if (raw_humidity >> 7) > 0 {
-                    Err(ReadingError::Invalid)
+                    Some(Err(ReadingError::Invalid))
                 } else {
-                    Ok(Humidity::V1(raw_humidity))
+                    Some(Ok(Humidity::V1(raw_humidity)))
                 }
             }
             Device::AranetRadon => {
                 let raw_humidity =
                     u16::from_le_bytes([*bytes.next().unwrap(), *bytes.next().unwrap()]);
                 if (raw_humidity >> 15) > 0 {
-                    Err(ReadingError::Invalid)
+                    Some(Err(ReadingError::Invalid))
                 } else {
-                    Ok(Humidity::V2(raw_humidity))
+                    Some(Ok(Humidity::V2(raw_humidity)))
                 }
             }
-            _ => unreachable!(),
+            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
         };
 
         match device {
@@ -282,7 +302,7 @@ impl TryFrom<&[u8]> for Reading {
             Device::AranetRadon => {
                 bytes.next();
             }
-            _ => unreachable!(),
+            Device::AranetRadiation | Device::Aranet2 => unreachable!(),
         }
 
         let battery = *bytes.next().unwrap();
@@ -332,16 +352,16 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
-        assert_eq!(reading.raw_temperature, Ok(452));
-        assert_eq!(reading.raw_pressure, Ok(10189));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
+        assert_eq!(reading.raw_temperature, Some(Ok(452)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10189)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V1(56))));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
 
-        assert_eq!(reading.celsius(), Ok(22.6));
-        assert_eq!(reading.fahrenheit(), Ok(72.68));
-        assert_eq!(reading.pressure_hpa(), Ok(1018.9));
+        assert_eq!(reading.celsius(), Some(Ok(22.6)));
+        assert_eq!(reading.fahrenheit(), Some(Ok(72.68)));
+        assert_eq!(reading.pressure_hpa(), Some(Ok(1018.9)));
     }
 
     #[test]
@@ -355,16 +375,16 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Ok(24)));
-        assert_eq!(reading.raw_temperature, Ok(332));
-        assert_eq!(reading.raw_pressure, Ok(10064));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V2(565)));
+        assert_eq!(reading.raw_temperature, Some(Ok(332)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10064)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
         assert_eq!(reading.battery, 100);
         assert_eq!(reading.interval, 600);
         assert_eq!(reading.age, 321);
 
-        assert_eq!(reading.celsius(), Ok(16.6));
-        assert_eq!(reading.fahrenheit(), Ok(61.88));
-        assert_eq!(reading.pressure_hpa(), Ok(1006.4));
+        assert_eq!(reading.celsius(), Some(Ok(16.6)));
+        assert_eq!(reading.fahrenheit(), Some(Ok(61.88)));
+        assert_eq!(reading.pressure_hpa(), Some(Ok(1006.4)));
     }
 
     #[test]
@@ -388,9 +408,9 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Err(ReadingError::Invalid)));
         assert_eq!(reading.radon, None);
-        assert_eq!(reading.raw_temperature, Ok(452));
-        assert_eq!(reading.raw_pressure, Ok(10189));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
+        assert_eq!(reading.raw_temperature, Some(Ok(452)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10189)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V1(56))));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
@@ -407,16 +427,16 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Err(ReadingError::Invalid)));
-        assert_eq!(reading.raw_temperature, Ok(332));
-        assert_eq!(reading.raw_pressure, Ok(10064));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V2(565)));
+        assert_eq!(reading.raw_temperature, Some(Ok(332)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10064)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
         assert_eq!(reading.battery, 100);
         assert_eq!(reading.interval, 600);
         assert_eq!(reading.age, 321);
 
-        assert_eq!(reading.celsius(), Ok(16.6));
-        assert_eq!(reading.fahrenheit(), Ok(61.88));
-        assert_eq!(reading.pressure_hpa(), Ok(1006.4));
+        assert_eq!(reading.celsius(), Some(Ok(16.6)));
+        assert_eq!(reading.fahrenheit(), Some(Ok(61.88)));
+        assert_eq!(reading.pressure_hpa(), Some(Ok(1006.4)));
     }
 
     #[test]
@@ -430,16 +450,16 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Err(ReadingError::NoData)));
-        assert_eq!(reading.raw_temperature, Ok(332));
-        assert_eq!(reading.raw_pressure, Ok(10064));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V2(565)));
+        assert_eq!(reading.raw_temperature, Some(Ok(332)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10064)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
         assert_eq!(reading.battery, 100);
         assert_eq!(reading.interval, 600);
         assert_eq!(reading.age, 321);
 
-        assert_eq!(reading.celsius(), Ok(16.6));
-        assert_eq!(reading.fahrenheit(), Ok(61.88));
-        assert_eq!(reading.pressure_hpa(), Ok(1006.4));
+        assert_eq!(reading.celsius(), Some(Ok(16.6)));
+        assert_eq!(reading.fahrenheit(), Some(Ok(61.88)));
+        assert_eq!(reading.pressure_hpa(), Some(Ok(1006.4)));
     }
 
     #[test]
@@ -453,16 +473,16 @@ mod tests {
         assert_eq!(reading.device, Device::AranetRadon);
         assert_eq!(reading.co2, None);
         assert_eq!(reading.radon, Some(Err(ReadingError::HighHumidity)));
-        assert_eq!(reading.raw_temperature, Ok(332));
-        assert_eq!(reading.raw_pressure, Ok(10064));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V2(565)));
+        assert_eq!(reading.raw_temperature, Some(Ok(332)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10064)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V2(565))));
         assert_eq!(reading.battery, 100);
         assert_eq!(reading.interval, 600);
         assert_eq!(reading.age, 321);
 
-        assert_eq!(reading.celsius(), Ok(16.6));
-        assert_eq!(reading.fahrenheit(), Ok(61.88));
-        assert_eq!(reading.pressure_hpa(), Ok(1006.4));
+        assert_eq!(reading.celsius(), Some(Ok(16.6)));
+        assert_eq!(reading.fahrenheit(), Some(Ok(61.88)));
+        assert_eq!(reading.pressure_hpa(), Some(Ok(1006.4)));
     }
 
     #[test]
@@ -476,11 +496,11 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
-        assert_eq!(reading.raw_temperature, Err(ReadingError::Invalid));
-        assert_eq!(reading.celsius(), Err(ReadingError::Invalid));
-        assert_eq!(reading.fahrenheit(), Err(ReadingError::Invalid));
-        assert_eq!(reading.raw_pressure, Ok(10189));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
+        assert_eq!(reading.raw_temperature, Some(Err(ReadingError::Invalid)));
+        assert_eq!(reading.celsius(), Some(Err(ReadingError::Invalid)));
+        assert_eq!(reading.fahrenheit(), Some(Err(ReadingError::Invalid)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10189)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V1(56))));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
@@ -497,10 +517,10 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
-        assert_eq!(reading.raw_temperature, Ok(452));
-        assert_eq!(reading.raw_pressure, Err(ReadingError::Invalid));
-        assert_eq!(reading.pressure_hpa(), Err(ReadingError::Invalid));
-        assert_eq!(reading.raw_humidity, Ok(Humidity::V1(56)));
+        assert_eq!(reading.raw_temperature, Some(Ok(452)));
+        assert_eq!(reading.raw_pressure, Some(Err(ReadingError::Invalid)));
+        assert_eq!(reading.pressure_hpa(), Some(Err(ReadingError::Invalid)));
+        assert_eq!(reading.raw_humidity, Some(Ok(Humidity::V1(56))));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
@@ -517,9 +537,9 @@ mod tests {
         assert_eq!(reading.device, Device::Aranet4);
         assert_eq!(reading.co2, Some(Ok(752)));
         assert_eq!(reading.radon, None);
-        assert_eq!(reading.raw_temperature, Ok(452));
-        assert_eq!(reading.raw_pressure, Ok(10189));
-        assert_eq!(reading.raw_humidity, Err(ReadingError::Invalid));
+        assert_eq!(reading.raw_temperature, Some(Ok(452)));
+        assert_eq!(reading.raw_pressure, Some(Ok(10189)));
+        assert_eq!(reading.raw_humidity, Some(Err(ReadingError::Invalid)));
         assert_eq!(reading.battery, 60);
         assert_eq!(reading.interval, 60);
         assert_eq!(reading.age, 13);
