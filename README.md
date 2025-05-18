@@ -8,9 +8,15 @@ You do not need to pair your Aranet4 device with the host running this service.
 However, you do need to enable "Smart Home integrations" for each Aranet4 device,
 and you'll need its Bluetooth MAC address.
 
-This service expects a configuration file named by the `$ARANET_CONFIG`
-environment variable (or, if unset, `config.toml` in the current directory).
-The config file has the following format:
+This service expects a configuration file, which is named by the following
+order of precedence:
+
+1. the `--config-file` flag
+2. the `ARANET_CONFIG` environment variable
+3. the default of `config.toml` in the current directory
+
+The config file has the following format. The `11111`-style keys are unused by
+this service, but are intended to be the Aranet device IDs.
 
 ```toml
 [devices]

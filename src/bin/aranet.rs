@@ -7,15 +7,21 @@ use btleplug::api::{
     BDAddr, Central, CentralEvent, Manager as _, Peripheral, ScanFilter, bleuuid::uuid_from_u16,
 };
 use btleplug::platform::Manager;
+use clap::Parser;
 use futures::stream::StreamExt;
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 static MANUFACTURER_ID: u16 = 1794;
 static SERVICE_ID: u16 = 0xfce0;
 
-async fn load_config() -> Result<config::Config> {
-    let path = std::env::var("ARANET_CONFIG").unwrap_or(String::from("config.toml"));
-    let content = tokio::fs::read_to_string(path).await?;
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(long, env = "ARANET_CONFIG", default_value = "config.toml")]
+    config_file: PathBuf,
+}
+
+async fn load_config(args: &Args) -> Result<config::Config> {
+    let content = tokio::fs::read_to_string(&args.config_file).await?;
     Ok(config::Config::try_from(content.as_ref())?)
 }
 
@@ -169,7 +175,9 @@ async fn scan(devices: Vec<config::Device>) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config::Config { devices } = load_config().await?;
+    let args = Args::parse();
+    let config::Config { devices } = load_config(&args).await?;
+
     let devices = devices
         .into_values()
         .map(|mut device| {
