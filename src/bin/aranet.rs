@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use aranet::{
     config,
     reading::{Device, Humidity, Reading},
@@ -21,7 +21,9 @@ struct Args {
 }
 
 async fn load_config(args: &Args) -> Result<config::Config> {
-    let content = tokio::fs::read_to_string(&args.config_file).await?;
+    let content = tokio::fs::read_to_string(&args.config_file)
+        .await
+        .with_context(|| format!("Failed to read config file {}", args.config_file.display()))?;
     Ok(config::Config::try_from(content.as_ref())?)
 }
 
@@ -191,7 +193,9 @@ async fn scan(config: config::Config) -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let config = load_config(&args).await?;
+    let config = load_config(&args)
+        .await
+        .with_context(|| format!("Failed to load config file {}", args.config_file.display()))?;
 
     scan(config).await?;
 
